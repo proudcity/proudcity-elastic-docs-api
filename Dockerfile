@@ -1,12 +1,12 @@
-# This Dockerfile uses the stock node container for Node.js, release 8.X (latest)
+# This Dockerfile uses the stock node container for Node.js, release 12.X
 
-FROM node:8-jessie
+FROM node:12-buster
 
 # install ssh for npm git and curl
-RUN apt-get update && apt-get -y install ssh curl libc6 libssl1.0.0 libncurses5 libtinfo5 \
-    zlib1g libbz2-1.0 libreadline6 libstdc++6 libgcc1 ghostscript imagemagick libmysqlclient18 \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get -y install ssh curl libc6 libssl1.1 libncurses5 libtinfo5 \
+  zlib1g libbz2-1.0 libreadline7 libstdc++6 libgcc1 ghostscript imagemagick default-libmysqlclient-dev \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
 
 # https://github.com/nodejs/docker-node/issues/479#issuecomment-319446283
 # and https://github.com/nodejs/docker-node/blob/master/docs/BestPractices.md#global-npm-dependencies
@@ -17,7 +17,7 @@ ENV NODE_ENV="production"
 
 # allow node user to bind to port 80 https://gist.github.com/firstdoit/6389682
 # note this doesn't work beyond Debian jesse
-RUN setcap 'cap_net_bind_service=+ep' `which node`
+# RUN setcap 'cap_net_bind_service=+ep' `which node`
 
 RUN npm install -g forever
 
