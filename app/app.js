@@ -47,7 +47,7 @@ app.get('/', function(req, res) {
 
 // Init http
 const httpServer = http.createServer(app);
-httpServer.listen(config.port);
+httpServer.listen(config.port, '0.0.0.0');
 
 // Init https
 if(process.env.SSL_KEY && process.env.SSL_CRT) {

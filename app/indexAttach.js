@@ -168,12 +168,15 @@ function getElastic(path) {
       uri: url,
       json: true,
     }, function (error, response, body) {
+      console.log('getElastic request 1');
       if (!error && response && response.statusCode === 200) {
         return resolve(body);
       }
       if (error) {
+        console.log('getElastic request 2');
         console.log(error);
       } else {
+        console.log('getElastic request 3');
         console.log(body);
       }
       return reject('Failed getting from elastic');
@@ -221,17 +224,30 @@ function postToElastic(message) {
     nextInQueue();
   }
 
+  // console.log('message', message.message);
+
   let task;
   try {
-    task = JSON.parse(message.message);
+    task = JSON.parse(message.message, function(key, value) {
+      // console.log(key, value);
+      if (key === 'boolean' && value.match) {
+       return !!value.match(/^\s*(true|1)\s*$/i);
+      }
+      return value;
+    });
+    
   } catch(e) {
     console.log(e);
     return erroring('Initial parse failed');
   }
 
+  // console.log('task', task.post.meta);
+
   // Run
   getIndexedDoc(task).then((indexed) => {
+    // console.log(`getIndexedDoc`);
     attachEncodedDocs(task, indexed).then((post) => {
+      // console.log(`attachEncodedDocs`);
       sendElastic(task.path, post).then(() => {
         console.log(`Success post ID: ${post.ID}, to path: ${task.path}`);
         processing = false;
@@ -330,6 +346,12 @@ const handleRequest = (req, res) => {
     console.log('Insufficient data to index:' + payload.path);
     res.send();
   }
+
+  // console.log('incoming payload document', payload.post.meta.document[0]);
+
+  // if (payload.post.meta.form[0].boolean !== false) {
+  //   console.log('incoming payload meta', payload.post.meta);
+  // }
 
   // Send message
   sendMessage(payload).then(() => {
