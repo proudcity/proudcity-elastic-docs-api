@@ -320,22 +320,46 @@ function sendMessage(json) {
   });
 }
 
+// Legitimate shapes, derived from wp-proud-search-elastic:
+//   payload.path        = "<index>/_doc/<id>?pipeline=<index>-attachment"
+//   payload.indexedPath = "<index>/_doc/<id>"
+// Index names are lowercase slugs like "san-rafael-ca".
+const PATH_REGEX = /^[a-z0-9][a-z0-9_-]{0,62}\/_doc\/\d+\?pipeline=[a-z0-9][a-z0-9_-]{0,62}-attachment$/;
+const INDEXED_PATH_REGEX = /^[a-z0-9][a-z0-9_-]{0,62}\/_doc\/\d+$/;
+
+// Truncate + strip control chars so a rejected value can't poison the log line.
+function sanitizeForLog(value) {
+  if (typeof value !== 'string') {
+    return '[non-string]';
+  }
+  return value.replace(/[\x00-\x1f\x7f]/g, '?').slice(0, 120);
+}
+
 /**
  * Express response
  */
 const handleRequest = (req, res) => {
   let payload = req.body;
   if (!payload || !payload.path || !_.has(payload, 'post.attachments') || !payload.post.attachments.length) {
-    // Well....
-    console.log('Insufficient data to index:' + payload.path);
-    res.send();
+    console.log('Insufficient data to index: ' + sanitizeForLog(payload && payload.path));
+    return res.status(400).send();
+  }
+
+  if (!PATH_REGEX.test(payload.path)) {
+    console.log('Rejected payload.path shape: ' + sanitizeForLog(payload.path));
+    return res.status(400).send();
+  }
+
+  if (!payload.indexedPath || !INDEXED_PATH_REGEX.test(payload.indexedPath)) {
+    console.log('Rejected payload.indexedPath shape: ' + sanitizeForLog(payload.indexedPath));
+    return res.status(400).send();
   }
 
   // Send message
   sendMessage(payload).then(() => {
     res.send();
   }).catch(() => {
-    console.log('Failed to index:' + payload.path);
+    console.log('Failed to index: ' + sanitizeForLog(payload.path));
     res.send();
   });
 }
