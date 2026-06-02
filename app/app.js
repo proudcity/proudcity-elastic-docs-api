@@ -63,4 +63,9 @@ const indexAttach = require('./indexAttach');
 
 app.post('/send-attachments', indexAttach);
 
+// PCD269 dual-route: same handler, guarded by routeAuth. Sites migrate to
+// this URL one at a time. The unauthenticated route above stays live until
+// every site is verified on /send-attachments-auth; then it gets removed.
+app.post('/send-attachments-auth', routeAuth, indexAttach);
+
 module.exports = app;
