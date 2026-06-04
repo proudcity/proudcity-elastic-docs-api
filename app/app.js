@@ -61,17 +61,9 @@ if(process.env.SSL_KEY && process.env.SSL_CRT) {
 
 const indexAttach = require('./indexAttach');
 
-// PCD269 phase E.1: log every hit on the unauth route. After all 9 sites
-// migrated to /send-attachments-auth, this should never fire. Tail logs
-// for 24h; if clean, the unauth route can be deleted in phase E.2.
-app.post('/send-attachments', function(req, res, next) {
-  console.log('UNAUTH_ROUTE_HIT from ' + (req.ip || req.connection.remoteAddress));
-  next();
-}, indexAttach);
-
-// PCD269 dual-route: same handler, guarded by routeAuth. Sites migrate to
-// this URL one at a time. The unauthenticated route above stays live until
-// every site is verified on /send-attachments-auth; then it gets removed.
+// PCD269: auth-required attachment indexing. The previous unauthenticated
+// /send-attachments route was removed in phase E.2 after the soak window
+// confirmed every active caller had migrated.
 app.post('/send-attachments-auth', routeAuth, indexAttach);
 
 module.exports = app;
