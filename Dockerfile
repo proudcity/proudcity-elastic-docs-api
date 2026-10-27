@@ -1,7 +1,5 @@
-# Current Node LTS on Debian Bookworm. Bumped from node:8-jessie (PCD269):
-# the jessie apt repos were decommissioned, so the old image will no longer
-# build. This is the minimum change to make builds work — full dependency
-# audit/refresh is tracked separately under pc-dev-issues#288.
+# Dependency refresh and Node base image bump tracked under
+# pc-dev-issues#427. See that issue for the version history.
 
 FROM node:20-bookworm-slim
 
@@ -28,12 +26,13 @@ COPY ./app /home/node/app
 # The application's directory will be the working directory
 WORKDIR /home/node/app
 
-# Install Node.js dependencies defined in '/app/packages.json'
-RUN npm install
+# Install exactly what's in package-lock.json, instead of letting npm
+# install resolve newer versions at build time.
+RUN npm ci --omit=dev
 
 # EXPOSE 4001
 
-RUN chown -R node:node ./logs && chown node:node ./encoding
+RUN chown -R node:node ./logs
 
 USER node
 
