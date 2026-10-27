@@ -55,6 +55,7 @@ function getIndexedDoc(task) {
  * Buffers in memory instead of a temp file; enforces MAX_ATTACHMENT_BYTES
  * both against Content-Length (when present) and against the bytes
  * actually read, so an oversized body never gets fully buffered.
+ * Resolves { encoded, bytes } so callers can track a download budget.
  */
 function getEncodedDoc(url) {
   const controller = new AbortController();
@@ -77,7 +78,11 @@ function getEncodedDoc(url) {
 
       const read = () => reader.read().then(({ done, value }) => {
         if (done) {
-          return Buffer.concat(chunks);
+          const buffer = Buffer.concat(chunks);
+          // Drop the individual read buffers now that they're copied
+          // into the single concatenated buffer.
+          chunks.length = 0;
+          return buffer;
         }
         received += value.length;
         if (received > config.maxAttachmentBytes) {
@@ -90,12 +95,20 @@ function getEncodedDoc(url) {
 
       return read();
     })
-    .then((buffer) => buffer.toString('base64'))
+    .then((buffer) => {
+      // Release the raw bytes as soon as the base64 copy exists.
+      const encoded = buffer.toString('base64');
+      const bytes = buffer.length;
+      return { encoded, bytes };
+    })
     .finally(() => clearTimeout(timer));
 }
 
 /**
  * Attaches base64 encoding to post attachments
+ * Downloads run sequentially (concurrency 1) and share a per-task byte
+ * budget of config.maxAttachmentBytes: once that budget is used up, any
+ * remaining attachments are dropped without attempting a download.
  * @TODO deal with multple docs?
  */
 function attachEncodedDocs(task, indexed) {
@@ -113,41 +126,57 @@ function attachEncodedDocs(task, indexed) {
 
   return new Promise((resolve, reject) => {
     if (task.post && task.post.attachments && task.post.attachments.length) {
+      const attachments = task.post.attachments;
       // Do we even need to post?
       let newAttachment = false;
+      let budgetRemaining = config.maxAttachmentBytes;
 
-      // Run through attachments, and either use existing or encode doc
-      const promises = task.post.attachments.map((attachment, index) => 
-        new Promise((resolveInner) => {
-          // Already have this doc?
-          const indexedData = getIndexedData(attachment);
-          if (indexedData) {
-            console.log('Doc already exists in elastic: ' + attachment);
-            task.post.attachments[index] = indexedData;
-            resolveInner();
-            return;
-          }
+      // Walk the attachments one at a time instead of firing every
+      // download in parallel, so a single task can't pile up several
+      // large in-flight buffers at once.
+      const runSequential = (index) => {
+        if (index >= attachments.length) {
+          return Promise.resolve();
+        }
 
-          // Get encoded
-          console.log('Fetching and encoding: ' + attachment);
-          getEncodedDoc(attachment).then((encoded) => {
+        const attachment = attachments[index];
+
+        // Already have this doc?
+        const indexedData = getIndexedData(attachment);
+        if (indexedData) {
+          console.log('Doc already exists in elastic: ' + attachment);
+          attachments[index] = indexedData;
+          return runSequential(index + 1);
+        }
+
+        if (budgetRemaining <= 0) {
+          console.log(`Dropping attachment ${attachment}: per-task download budget exhausted`);
+          attachments[index] = null;
+          return runSequential(index + 1);
+        }
+
+        // Get encoded
+        console.log('Fetching and encoding: ' + attachment);
+        return getEncodedDoc(attachment)
+          .then(({ encoded, bytes }) => {
             console.log('Encode success: ' + attachment);
-            task.post.attachments[index] = { file: attachment, data: encoded };
+            attachments[index] = { file: attachment, data: encoded };
             // Set flag
             newAttachment = true;
-            resolveInner();
-          }).catch((error) => {
+            budgetRemaining -= bytes;
+          })
+          .catch((error) => {
             console.log(`Dropping attachment ${attachment}: ${error && error.message || error}`);
-            task.post.attachments[index] = null;
-            resolveInner();
-          });
-        })
-      );
+            attachments[index] = null;
+          })
+          .then(() => runSequential(index + 1));
+      };
 
-      Promise.all(promises)
+      runSequential(0)
         .then(() => {
-          // Compact: drop the nulls left by failed downloads instead of
-          // leaving holes that JSON.stringify would turn into null.
+          // Compact: drop the nulls left by failed/dropped downloads
+          // instead of leaving holes that JSON.stringify would turn into
+          // null.
           task.post.attachments = task.post.attachments.filter(Boolean);
           if (!newAttachment) {
             // Nothing new
