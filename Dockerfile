@@ -1,7 +1,7 @@
 # Dependency refresh and Node base image bump tracked under
 # pc-dev-issues#427. See that issue for the version history.
 
-FROM node:20-bookworm-slim
+FROM node:24-bookworm-slim
 
 # ssh for npm git deps; ca-certificates for HTTPS upstreams. The original
 # Dockerfile installed imagemagick/ghostscript/libmysqlclient — none of the
