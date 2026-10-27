@@ -1,9 +1,7 @@
 'use strict';
 
-const fs = require('fs');
 const _ = require('lodash');
 const RedisSMQ = require('rsmq')
-const request = require('request');
 
 const name = 'proudElastic';
 
@@ -54,35 +52,47 @@ function getIndexedDoc(task) {
 }
 
 /**
- * Requests doc, encodes to base64
+ * Requests doc, encodes to base64.
+ * Buffers in memory instead of a temp file; enforces MAX_ATTACHMENT_BYTES
+ * both against Content-Length (when present) and against the bytes
+ * actually read, so an oversized body never gets fully buffered.
  */
 function getEncodedDoc(url) {
-  return new Promise((resolve, reject) => {
-    const filepath = `${__base}encoding/${url.substring(url.lastIndexOf('/')+1)}`;
-    const ws = fs.createWriteStream(filepath);
-    // Get file
-    request.get(url).pipe(ws);
-    // Watch results
-    ws.on('error', (error) => {
-      console.log('Error saving file');
-      return reject(error);
-    }).on('finish', () => {
-      // Now read our file in base64
-      fs.readFile(filepath, { encoding: 'base64'}, (error, data) => {
-        if (error) {
-          console.log('Error reading file: ' + filepath);
-          return reject(error);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60_000);
+
+  return fetch(url, { signal: controller.signal })
+    .then((res) => {
+      if (!res.ok) {
+        throw new Error(`status ${res.status}`);
+      }
+
+      const contentLength = res.headers.get('content-length');
+      if (contentLength && Number(contentLength) > config.maxAttachmentBytes) {
+        throw new Error(`content-length ${contentLength} exceeds ${config.maxAttachmentBytes} byte cap`);
+      }
+
+      const reader = res.body.getReader();
+      const chunks = [];
+      let received = 0;
+
+      const read = () => reader.read().then(({ done, value }) => {
+        if (done) {
+          return Buffer.concat(chunks);
         }
-        // Now delete
-        fs.unlink(filepath, (delErr) => {
-          if(delErr) {
-            console.log('Error deleting file...sending anyway: ' + filepath);
-          }
-          return resolve(data);
-        });  
+        received += value.length;
+        if (received > config.maxAttachmentBytes) {
+          controller.abort();
+          throw new Error(`body exceeded ${config.maxAttachmentBytes} byte cap`);
+        }
+        chunks.push(value);
+        return read();
       });
-    });
-  });
+
+      return read();
+    })
+    .then((buffer) => buffer.toString('base64'))
+    .finally(() => clearTimeout(timer));
 }
 
 /**
@@ -127,9 +137,9 @@ function attachEncodedDocs(task, indexed) {
             // Set flag
             newAttachment = true;
             resolveInner();
-          }).catch((error, response) => {
-            console.log(error);
-            delete task.post.attachments[index];
+          }).catch((error) => {
+            console.log(`Dropping attachment ${attachment}: ${error && error.message || error}`);
+            task.post.attachments[index] = null;
             resolveInner();
           });
         })
@@ -137,6 +147,9 @@ function attachEncodedDocs(task, indexed) {
 
       Promise.all(promises)
         .then(() => {
+          // Compact: drop the nulls left by failed downloads instead of
+          // leaving holes that JSON.stringify would turn into null.
+          task.post.attachments = task.post.attachments.filter(Boolean);
           if (!newAttachment) {
             // Nothing new
             return reject('Post has no new attachments');
@@ -162,21 +175,16 @@ function attachEncodedDocs(task, indexed) {
 function getElastic(path) {
   const url = `${config.elasticsearch}:9200/${path}`;
 
-  return new Promise((resolve, reject) => {
-    return request({
-      method: 'GET',
-      uri: url,
-      json: true,
-    }, function (error, response, body) {
-      if (!error && response && response.statusCode === 200) {
-        return resolve(body);
-      }
-      if (error) {
-        console.log(error);
-      } else {
-        console.log(body);
-      }
-      return reject('Failed getting from elastic');
+  return fetch(url, {
+    headers: { accept: 'application/json' },
+    signal: AbortSignal.timeout(30_000),
+  }).then((res) => {
+    if (res.status === 200) {
+      return res.json();
+    }
+    return res.text().then((body) => {
+      console.log(body);
+      throw new Error('Failed getting from elastic');
     });
   });
 }
@@ -187,23 +195,19 @@ function getElastic(path) {
 function sendElastic(path, post) {
   const url = `${config.elasticsearch}:9200/${path}`;
   console.log(`Attemping to index post ID: ${post.ID}, to url: ${url}`);
-  
-  return new Promise((resolve, reject) => {
-    request({
-      method: 'PUT',
-      uri: url,
-      json: true,
-      body: post,
-    }, function (error, response, body) {
-      if (!error && response && response.statusCode === 200) {
-        return resolve(body);
-      }
-      if (error) {
-        console.log(error);
-      } else {
-        console.log(body);
-      }
-      return reject('Failed sending to elastic');
+
+  return fetch(url, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify(post),
+    signal: AbortSignal.timeout(120_000),
+  }).then((res) => {
+    if (res.ok) {
+      return;
+    }
+    return res.text().then((body) => {
+      console.log(body);
+      throw new Error('Failed sending to elastic');
     });
   });
 }
@@ -238,7 +242,7 @@ function postToElastic(message) {
         nextInQueue();
       }).catch(erroring);
     }).catch(erroring);
-  }).catch((error) => erroring(error.message));
+  }).catch((error) => erroring(error && error.message || error));
 }
 
 /**

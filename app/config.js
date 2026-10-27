@@ -5,4 +5,5 @@ module.exports = {
   'elasticsearch': _.has(process, 'env.ELASTIC') ? `http://${process.env.ELASTIC}` : 'http://localhost',
   'redis': _.has(process, 'env.REDIS') ? process.env.REDIS : 'localhost',
   'redisport': _.has(process, 'env.REDISPORT') ? parseInt(process.env.REDISPORT) : 6379,
+  'maxAttachmentBytes': _.has(process, 'env.MAX_ATTACHMENT_BYTES') ? parseInt(process.env.MAX_ATTACHMENT_BYTES) : 104857600,
 }
