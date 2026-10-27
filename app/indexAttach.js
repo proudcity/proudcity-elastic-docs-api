@@ -64,11 +64,13 @@ function getEncodedDoc(url) {
   return fetch(url, { signal: controller.signal })
     .then((res) => {
       if (!res.ok) {
+        controller.abort();
         throw new Error(`status ${res.status}`);
       }
 
       const contentLength = res.headers.get('content-length');
       if (contentLength && Number(contentLength) > config.maxAttachmentBytes) {
+        controller.abort();
         throw new Error(`content-length ${contentLength} exceeds ${config.maxAttachmentBytes} byte cap`);
       }
 
