@@ -1,5 +1,26 @@
 'use strict';
 
+// Strip anything that looks like embedded basic-auth credentials
+// (scheme://user:pass@host) out of an error's message/stack before it
+// hits the log, since app.js has no visibility into what a rejected
+// promise or thrown error is carrying.
+function sanitizeErrorForLog(err) {
+  const raw = (err && err.stack) ? err.stack : String(err);
+  return raw.replace(/:\/\/[^/@\s]+:[^/@\s]+@/g, '://[redacted]@');
+}
+
+// A crash now means a k8s restart with backoff, so both of these need to
+// log before anything else happens.
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection: ' + sanitizeErrorForLog(reason));
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception: ' + sanitizeErrorForLog(err));
+  // Don't keep running with unknown state; exit so k8s restarts cleanly.
+  process.exit(1);
+});
+
 global.__base = __dirname + '/';
 
 const express = require('express'),
