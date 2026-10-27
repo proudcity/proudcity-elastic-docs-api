@@ -6,6 +6,7 @@ const express = require('express'),
       cors = require('cors'),
       http = require('http'),
       https = require('https'),
+      crypto = require('crypto'),
       bodyParser = require('body-parser'),
       basicAuth = require('basic-auth');
 
@@ -13,6 +14,15 @@ const express = require('express'),
 global.config = require(__base + 'config');
 
 const app = express();
+
+// Compares two fixed-length sha256 digests instead of the raw strings, so
+// crypto.timingSafeEqual never throws on a length mismatch and a wrong-length
+// guess can't be distinguished by timing from a wrong-value one.
+function safeCompare(a, b) {
+  const digestA = crypto.createHash('sha256').update(String(a)).digest();
+  const digestB = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(digestA, digestB);
+}
 
 global.routeAuth = function (req, res, next) {
   function unauthorized(res) {
@@ -26,7 +36,10 @@ global.routeAuth = function (req, res, next) {
     return unauthorized(res);
   };
 
-  if (user.name ===  process.env.API_AUTH_USER && user.pass === process.env.API_AUTH_PASS) {
+  const userMatches = safeCompare(user.name, process.env.API_AUTH_USER || '');
+  const passMatches = safeCompare(user.pass, process.env.API_AUTH_PASS || '');
+
+  if (userMatches && passMatches) {
     return next();
   } else {
     return unauthorized(res);
