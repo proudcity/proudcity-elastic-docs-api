@@ -1,84 +1,68 @@
 'use strict';
 
-var http = require("http");
+// Smoke test for POST /send-attachments-auth.
+//
+// Usage:
+//   DOCSAPI_URL=http://localhost:8085 \
+//   DOCSAPI_USER=<API_AUTH_USER> \
+//   DOCSAPI_PASS=<API_AUTH_PASS> \
+//   node test.js <attachment-url> [index] [id]
+//
+// index/id default to a throwaway beta doc. Seed it in Elasticsearch first,
+// for example:
+//   curl -XPUT -H 'content-type: application/json' \
+//     localhost:9200/beta/_doc/999999427 -d '{"ID":999999427}'
 
-var options = {
-  "method": "POST",
-  "hostname": "localhost",
-  "port": "8084",
-  "path": "/send-attachments",
-  "headers": {
-    "content-type": "application/json",
-    "cache-control": "no-cache",
-    "postman-token": "914f0ce5-8c84-885f-8a4b-ead7e22f4090"
-  }
+const docsapiUrl = process.env.DOCSAPI_URL || 'http://localhost:8085';
+const docsapiUser = process.env.DOCSAPI_USER;
+const docsapiPass = process.env.DOCSAPI_PASS;
+
+const attachmentUrl = process.argv[2];
+const index = process.argv[3] || 'beta';
+const id = process.argv[4] || '999999427';
+
+if (!attachmentUrl) {
+  console.error('Usage: DOCSAPI_URL=... DOCSAPI_USER=... DOCSAPI_PASS=... node test.js <attachment-url> [index] [id]');
+  process.exit(1);
+}
+
+if (!docsapiUser || !docsapiPass) {
+  console.error('DOCSAPI_USER and DOCSAPI_PASS are required');
+  process.exit(1);
+}
+
+const indexedPath = `${index}/_doc/${id}`;
+const path = `${indexedPath}?pipeline=${index}-attachment`;
+
+const payload = {
+  indexedPath,
+  path,
+  post: {
+    ID: Number(id),
+    attachments: [attachmentUrl],
+  },
 };
 
-var working = false;
-function makethecall(json) {
-  var req = http.request(options, function (res) {
-    var chunks = [];
+const auth = Buffer.from(`${docsapiUser}:${docsapiPass}`).toString('base64');
 
-    res.on("data", function (chunk) {
-      console.log('chunking');
-      chunks.push(chunk);
-    });
-
-    res.on("end", function () {
-      var body = Buffer.concat(chunks);
-      // console.log(body.toString());
-      console.log('done');
-      working = false;
-    });
+fetch(`${docsapiUrl}/send-attachments-auth`, {
+  method: 'POST',
+  headers: {
+    'content-type': 'application/json',
+    authorization: `Basic ${auth}`,
+  },
+  body: JSON.stringify(payload),
+})
+  .then((res) => {
+    console.log(`Status: ${res.status}`);
+    return res.text();
+  })
+  .then((body) => {
+    if (body) {
+      console.log(body);
+    }
+  })
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
   });
-  req.write(JSON.stringify(json));
-  req.end();
-}
-
-function isWorkin() {
-  console.log('ummmm');
-  return working;
-}
-
-var index = 'san-rafael-ca';
-
-
-var timout = 500;
-
-for(let i = 1; i < 30; i++) {
-  var basepath = `${index}/post/${i}`;
-      var path = `${index}/post/${i}?pipeline=${index}-attachment`;
-  setTimeout(() => {
-    const json = { 
-      indexedPath: basepath, 
-      path: `${basepath}?pipeline=${index}-attachment`,
-      post: { 
-        ID: i,
-        attachments: [ 'https://storage.googleapis.com/proudcity/localhosttest/uploads/2018/11/Awards.pdf', 'https://storage.googleapis.com/proudcity/localhosttest/uploads/text-1-1.docx' ]
-      }
-    };
-    console.log(json);
-    makethecall(json);
-  }, (timout * i));
-}
-
-var timout2 = 500; 
-
-setTimeout(() => {
-  for(let i = 1; i < 30; i++) {
-    
-    setTimeout(() => {
-      var basepath = `${index}/post/${i}`;
-      var path = `${index}/post/${i}?pipeline=${index}-attachment`;
-      const json = { 
-        path: path,
-        post: { 
-          ID: i,
-          attachments: [ 'https://storage.googleapis.com/proudcity/localhosttest/uploads/text-1-1.docx' ]
-        }
-      };
-      makethecall(json);
-    }, (timout2 * i));
-
-  }
-}, timout * 15)
