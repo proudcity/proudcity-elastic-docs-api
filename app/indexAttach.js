@@ -1,6 +1,5 @@
 'use strict';
 
-const _ = require('lodash');
 const RedisSMQ = require('rsmq')
 
 const name = 'proudElastic';
@@ -113,7 +112,7 @@ function attachEncodedDocs(task, indexed) {
   };
 
   return new Promise((resolve, reject) => {
-    if (_.has(task, 'post.attachments') && task.post.attachments.length) {
+    if (task.post && task.post.attachments && task.post.attachments.length) {
       // Do we even need to post?
       let newAttachment = false;
 
@@ -344,7 +343,7 @@ function sanitizeForLog(value) {
  */
 const handleRequest = (req, res) => {
   let payload = req.body;
-  if (!payload || !payload.path || !_.has(payload, 'post.attachments') || !payload.post.attachments.length) {
+  if (!payload || !payload.path || !payload.post || !payload.post.attachments || !payload.post.attachments.length) {
     console.log('Insufficient data to index: ' + sanitizeForLog(payload && payload.path));
     return res.status(400).send();
   }

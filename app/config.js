@@ -1,9 +1,7 @@
-const _ = require('lodash');
-
 module.exports = {
-  'port': _.has(process, 'env.PORT') ? parseInt(process.env.PORT) : 8084,
-  'elasticsearch': _.has(process, 'env.ELASTIC') ? `http://${process.env.ELASTIC}` : 'http://localhost',
-  'redis': _.has(process, 'env.REDIS') ? process.env.REDIS : 'localhost',
-  'redisport': _.has(process, 'env.REDISPORT') ? parseInt(process.env.REDISPORT) : 6379,
-  'maxAttachmentBytes': _.has(process, 'env.MAX_ATTACHMENT_BYTES') ? parseInt(process.env.MAX_ATTACHMENT_BYTES) : 104857600,
+  'port': process.env.PORT !== undefined ? parseInt(process.env.PORT) : 8084,
+  'elasticsearch': process.env.ELASTIC !== undefined ? `http://${process.env.ELASTIC}` : 'http://localhost',
+  'redis': process.env.REDIS !== undefined ? process.env.REDIS : 'localhost',
+  'redisport': process.env.REDISPORT !== undefined ? parseInt(process.env.REDISPORT) : 6379,
+  'maxAttachmentBytes': process.env.MAX_ATTACHMENT_BYTES !== undefined ? parseInt(process.env.MAX_ATTACHMENT_BYTES) : 104857600,
 }
